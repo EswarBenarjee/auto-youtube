@@ -1,0 +1,37 @@
+name: Auto Shorts Engine
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Create .env file
+        run: |
+          echo "PEXELS_API_KEY=${{ secrets.PEXELS_API_KEY }}" > .env
+
+      - name: Restore YouTube token
+        run: |
+          echo "${{ secrets.YT_TOKEN }}" | base64 -d > token.pickle
+
+      - name: Run script (3 videos)
+        run: |
+          python auto_shorts.py <<EOF
+          3
+          EOF
