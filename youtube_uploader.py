@@ -9,7 +9,6 @@ from gtts import gTTS
 from moviepy.editor import *
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
-from youtube_uploader import upload_video
 
 # ==============================
 # ENV
