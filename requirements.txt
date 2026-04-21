@@ -1,0 +1,10 @@
+moviepy
+gtts
+requests
+python-dotenv
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+numpy
+Pillow<10
