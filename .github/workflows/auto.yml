@@ -28,6 +28,9 @@ jobs:
           pip install requests
           pip install python-dotenv
           pip install imageio[ffmpeg]
+          pip install google-api-python-client
+          pip install google-auth-httplib2
+          pip install google-auth-oauthlib
 
       - name: Create .env file
         run: |
