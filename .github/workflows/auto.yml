@@ -20,7 +20,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install moviepy==1.0.3
+          pip install numpy
+          pip install pillow==9.5.0
+          pip install gtts
+          pip install requests
+          pip install python-dotenv
+          pip install imageio[ffmpeg]
 
       - name: Create .env file
         run: |
