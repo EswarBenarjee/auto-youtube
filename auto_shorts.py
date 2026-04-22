@@ -3,7 +3,6 @@ import random
 import time
 import gc
 import requests
-import subprocess
 import numpy as np
 from gtts import gTTS
 from moviepy.editor import *
@@ -24,6 +23,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
+print("API KEY LOADED:", PEXELS_API_KEY[:10] if PEXELS_API_KEY else "None")
+
 # ==============================
 # FOLDERS
 # ==============================
@@ -37,7 +38,7 @@ for d in [AUDIO, CLIPS, TEMP, OUTPUT]:
     os.makedirs(d, exist_ok=True)
 
 # ==============================
-# NICHE ROTATION
+# NICHE SYSTEM
 # ==============================
 NICHES = {
     "psychology": ["overthinking", "fake confidence", "people pleasing"],
@@ -50,32 +51,23 @@ NICHES = {
 SCRIPT_STYLES = ["curiosity", "list", "story", "warning", "question", "fact"]
 
 # ==============================
-# SCRIPT ENGINE (DIVERSIFIED)
+# SCRIPT ENGINE
 # ==============================
 def generate_script(topic):
     style = random.choice(SCRIPT_STYLES)
 
     prompt = f"""
-Create a HIGHLY viral YouTube Shorts script.
+Create a viral YouTube Shorts script.
 
 Topic: {topic}
 Style: {style}
 
 Rules:
 - 20–35 words
-- First sentence MUST hook instantly
+- Strong hook in first 2 seconds
 - Create curiosity gap
 - Make viewer feel they are missing something important
-- Fast pacing
 - No emojis or hashtags
-
-Style meanings:
-- curiosity → mystery
-- list → "3 signs..."
-- story → short relatable moment
-- warning → "never ignore this"
-- question → hook with question
-- fact → surprising truth
 """
 
     try:
@@ -87,49 +79,41 @@ Style meanings:
 
         return text
     except:
-        return f"Stop scrolling. If you {topic}, this reveals something most people miss."
+        return f"Stop scrolling. If you {topic}, this reveals something most people ignore."
 
 # ==============================
 # TITLE ENGINE
 # ==============================
 def generate_title(topic):
     return random.choice([
-        f"If you do this, watch this…",
+        f"If you do this, watch this",
         f"This explains {topic}",
         f"Nobody talks about this",
         f"3 signs of {topic}",
         f"Stop doing this immediately",
         f"This is why you {topic}",
-        f"Hidden meaning of {topic}",
-        f"You didn’t notice this about {topic}"
+        f"Hidden meaning of {topic}"
     ])
 
 # ==============================
-# AUDIO (FAST 1.2–1.5x)
+# AUDIO (NO CRASH VERSION)
 # ==============================
 def generate_audio(text, path):
-    raw = path.replace(".mp3", "_raw.mp3")
-
-    gTTS(text=text, lang="en").save(raw)
-
-    speed = random.uniform(1.2, 1.5)
-
-    cmd = f'ffmpeg -y -i "{raw}" -filter:a "atempo={speed}" "{path}"'
-    subprocess.call(cmd, shell=True)
-
-    os.remove(raw)
+    try:
+        gTTS(text=text, lang="en").save(path)
+    except Exception as e:
+        print("⚠️ Audio failed:", e)
 
 # ==============================
-# VIDEO SEARCH (VARIED)
+# VIDEO SEARCH
 # ==============================
 def get_query(topic):
     return random.choice([
         f"{topic} cinematic",
         f"{topic} emotional scene",
-        f"{topic} human behavior",
         f"{topic} lifestyle",
-        f"{topic} dark aesthetic",
-        f"{topic} real life"
+        f"{topic} human behavior",
+        f"{topic} dark aesthetic"
     ])
 
 def download_clips(query, count=3):
@@ -173,7 +157,7 @@ def format_vertical(clip):
     return clip.resize((1080, 1920))
 
 # ==============================
-# CAPTIONS (BOTTOM CLEAN)
+# CAPTIONS (FIXED BOTTOM SMALL)
 # ==============================
 def captions(text, duration):
     words = text.split()
@@ -182,16 +166,16 @@ def captions(text, duration):
     clips = []
 
     for i, w in enumerate(words):
-        img = Image.new("RGBA", (1080, 150), (0, 0, 0, 0))
+        img = Image.new("RGBA", (1080, 140), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         try:
-            font = ImageFont.truetype("arial.ttf", 40)
+            font = ImageFont.truetype("arial.ttf", 38)
         except:
             font = ImageFont.load_default()
 
-        draw.rectangle([(200, 30), (880, 120)], fill=(0, 0, 0, 160))
-        draw.text((540, 75), w.upper(), font=font, fill=(255,255,255), anchor="mm")
+        draw.rectangle([(250, 30), (830, 110)], fill=(0, 0, 0, 160))
+        draw.text((540, 70), w.upper(), font=font, fill=(255,255,255), anchor="mm")
 
         clip = ImageClip(np.array(img)).set_duration(per)
         clip = clip.set_start(i * per).set_position(("center", 1550))
@@ -204,11 +188,14 @@ def captions(text, duration):
 # VIDEO BUILDER
 # ==============================
 def build_video(audio_path, output_path, clips, script):
+    if not os.path.exists(audio_path):
+        print("⚠️ Audio missing, skipping video")
+        return
+
     audio = AudioFileClip(audio_path)
     duration = audio.duration
 
     per_clip = duration / len(clips)
-
     parts = []
 
     for c in clips:
@@ -244,7 +231,7 @@ def cleanup(files):
     gc.collect()
 
 # ==============================
-# MAIN ENGINE
+# MAIN
 # ==============================
 def main():
     n = int(input("How many videos? "))
@@ -270,18 +257,19 @@ def main():
         generate_audio(script, audio)
         build_video(audio, output, clips, script)
 
-        video_id = upload_video(
-            file_path=output,
-            title=generate_title(topic),
-            description=f"{niche} insights #shorts #viral",
-            tags=[niche, "shorts", "viral"]
-        )
-
-        print("✅ Uploaded:", video_id)
+        try:
+            video_id = upload_video(
+                file_path=output,
+                title=generate_title(topic),
+                description=f"{niche} insights #shorts #viral",
+                tags=[niche, "shorts", "viral"]
+            )
+            print("✅ Uploaded:", video_id)
+        except Exception as e:
+            print("⚠️ Upload failed:", e)
 
         cleanup([audio] + clips)
-
-        time.sleep(30)
+        time.sleep(20)
 
     print("\n🚀 DONE")
 
