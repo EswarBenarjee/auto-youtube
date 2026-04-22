@@ -3,11 +3,13 @@ import random
 import time
 import gc
 import requests
+import subprocess
 import numpy as np
 from gtts import gTTS
 from moviepy.editor import *
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 from youtube_uploader import upload_video
 
@@ -15,9 +17,12 @@ from youtube_uploader import upload_video
 # ENV
 # ==============================
 load_dotenv(".env", override=True)
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-print("API KEY LOADED:", PEXELS_API_KEY[:10] if PEXELS_API_KEY else "None")
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 # ==============================
 # FOLDERS
@@ -32,62 +37,114 @@ for d in [AUDIO, CLIPS, TEMP, OUTPUT]:
     os.makedirs(d, exist_ok=True)
 
 # ==============================
-# NICHE ENGINE
+# NICHE ROTATION
 # ==============================
-niches = {
-    "psychology": {
-        "ideas": ["avoid eye contact", "overthinking", "fake confidence"],
-        "query": "person thinking emotional"
-    },
-    "dark": {
-        "ideas": ["manipulation tactics", "silent control", "hidden intentions"],
-        "query": "dark moody person"
-    },
-    "facts": {
-        "ideas": ["brain tricks", "human behavior", "mind secrets"],
-        "query": "science brain thinking"
-    }
+NICHES = {
+    "psychology": ["overthinking", "fake confidence", "people pleasing"],
+    "money": ["saving habits", "rich mindset", "money mistakes"],
+    "fitness": ["fat loss", "gym mistakes", "discipline"],
+    "social": ["why people ignore you", "respect", "confidence"],
+    "facts": ["brain facts", "human behavior", "daily habits"]
 }
 
-# ==============================
-# SCRIPT ENGINE
-# ==============================
-def generate_script(idea):
-    return (
-        f"Stop scrolling. If someone {idea}, this means something deeper. "
-        f"Most people miss this. "
-        f"It reveals hidden emotion. "
-        f"And once you see it, you can't unsee it."
-    )
+SCRIPT_STYLES = ["curiosity", "list", "story", "warning", "question", "fact"]
 
 # ==============================
-# TITLE
+# SCRIPT ENGINE (DIVERSIFIED)
 # ==============================
-def generate_title(idea):
-    return f"The truth about {idea} (watch this)"
+def generate_script(topic):
+    style = random.choice(SCRIPT_STYLES)
+
+    prompt = f"""
+Create a HIGHLY viral YouTube Shorts script.
+
+Topic: {topic}
+Style: {style}
+
+Rules:
+- 20–35 words
+- First sentence MUST hook instantly
+- Create curiosity gap
+- Make viewer feel they are missing something important
+- Fast pacing
+- No emojis or hashtags
+
+Style meanings:
+- curiosity → mystery
+- list → "3 signs..."
+- story → short relatable moment
+- warning → "never ignore this"
+- question → hook with question
+- fact → surprising truth
+"""
+
+    try:
+        res = model.generate_content(prompt)
+        text = res.text.strip()
+
+        if len(text.split()) < 10:
+            raise Exception("Too short")
+
+        return text
+    except:
+        return f"Stop scrolling. If you {topic}, this reveals something most people miss."
 
 # ==============================
-# TTS
+# TITLE ENGINE
 # ==============================
-def tts(text, path):
-    gTTS(text=text, lang="en").save(path)
+def generate_title(topic):
+    return random.choice([
+        f"If you do this, watch this…",
+        f"This explains {topic}",
+        f"Nobody talks about this",
+        f"3 signs of {topic}",
+        f"Stop doing this immediately",
+        f"This is why you {topic}",
+        f"Hidden meaning of {topic}",
+        f"You didn’t notice this about {topic}"
+    ])
 
 # ==============================
-# DOWNLOAD CLIPS
+# AUDIO (FAST 1.2–1.5x)
 # ==============================
+def generate_audio(text, path):
+    raw = path.replace(".mp3", "_raw.mp3")
+
+    gTTS(text=text, lang="en").save(raw)
+
+    speed = random.uniform(1.2, 1.5)
+
+    cmd = f'ffmpeg -y -i "{raw}" -filter:a "atempo={speed}" "{path}"'
+    subprocess.call(cmd, shell=True)
+
+    os.remove(raw)
+
+# ==============================
+# VIDEO SEARCH (VARIED)
+# ==============================
+def get_query(topic):
+    return random.choice([
+        f"{topic} cinematic",
+        f"{topic} emotional scene",
+        f"{topic} human behavior",
+        f"{topic} lifestyle",
+        f"{topic} dark aesthetic",
+        f"{topic} real life"
+    ])
+
 def download_clips(query, count=3):
     url = "https://api.pexels.com/videos/search"
     headers = {"Authorization": PEXELS_API_KEY}
 
-    r = requests.get(url, headers=headers, params={"query": query, "per_page": count})
-    data = r.json()
+    try:
+        r = requests.get(url, headers=headers, params={"query": query, "per_page": count})
+        data = r.json()
+    except:
+        return []
 
     paths = []
 
-    if "videos" not in data:
-        return []
-
-    for i, v in enumerate(data["videos"][:count]):
+    for i, v in enumerate(data.get("videos", [])):
         try:
             best = max(v["video_files"], key=lambda x: x.get("height", 0))
             path = f"{CLIPS}/clip_{i}.mp4"
@@ -105,28 +162,36 @@ def download_clips(query, count=3):
 # FORMAT 9:16
 # ==============================
 def format_vertical(clip):
+    target = 1080 / 1920
+    ratio = clip.w / clip.h
+
+    if ratio > target:
+        clip = clip.crop(width=int(clip.h * target), x_center=clip.w / 2)
+    else:
+        clip = clip.crop(height=int(clip.w / target), y_center=clip.h / 2)
+
     return clip.resize((1080, 1920))
 
 # ==============================
 # CAPTIONS (BOTTOM CLEAN)
 # ==============================
-def captions(script, duration):
-    words = script.split()
+def captions(text, duration):
+    words = text.split()
     per = duration / len(words)
 
     clips = []
 
     for i, w in enumerate(words):
-        img = Image.new("RGBA", (1080, 160), (0, 0, 0, 0))
+        img = Image.new("RGBA", (1080, 150), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         try:
-            font = ImageFont.truetype("arial.ttf", 45)
+            font = ImageFont.truetype("arial.ttf", 40)
         except:
             font = ImageFont.load_default()
 
-        draw.rectangle([(250, 20), (830, 120)], fill=(0, 0, 0, 160))
-        draw.text((540, 70), w.upper(), font=font, fill=(255, 255, 255), anchor="mm")
+        draw.rectangle([(200, 30), (880, 120)], fill=(0, 0, 0, 160))
+        draw.text((540, 75), w.upper(), font=font, fill=(255,255,255), anchor="mm")
 
         clip = ImageClip(np.array(img)).set_duration(per)
         clip = clip.set_start(i * per).set_position(("center", 1550))
@@ -138,11 +203,12 @@ def captions(script, duration):
 # ==============================
 # VIDEO BUILDER
 # ==============================
-def build_video(audio_path, temp_path, output_path, clips, script):
+def build_video(audio_path, output_path, clips, script):
     audio = AudioFileClip(audio_path)
     duration = audio.duration
 
     per_clip = duration / len(clips)
+
     parts = []
 
     for c in clips:
@@ -159,13 +225,11 @@ def build_video(audio_path, temp_path, output_path, clips, script):
 
     final = CompositeVideoClip([base, *captions(script, duration)])
 
-    final.write_videofile(temp_path, fps=24)
+    final.write_videofile(output_path, fps=24)
 
     final.close()
     base.close()
     audio.close()
-
-    os.rename(temp_path, output_path)
 
 # ==============================
 # CLEANUP
@@ -177,50 +241,49 @@ def cleanup(files):
                 os.remove(f)
         except:
             pass
-
     gc.collect()
 
 # ==============================
-# MAIN
+# MAIN ENGINE
 # ==============================
 def main():
     n = int(input("How many videos? "))
 
     for i in range(n):
-        niche = random.choice(list(niches.keys()))
-        idea = random.choice(niches[niche]["ideas"])
+        niche = random.choice(list(NICHES.keys()))
+        topic = random.choice(NICHES[niche])
 
-        print(f"\n🎬 {i+1}: {idea}")
+        print(f"\n🎬 {i+1}: [{niche}] {topic}")
 
-        script = generate_script(idea)
+        script = generate_script(topic)
+        query = get_query(topic)
 
         audio = f"{AUDIO}/voice_{i}.mp3"
-        temp_video = f"{TEMP}/temp_{i}.mp4"
-        final_video = f"{OUTPUT}/{idea.replace(' ','_')}_{i}.mp4"
+        output = f"{OUTPUT}/{niche}_{topic.replace(' ','_')}_{i}.mp4"
 
-        clips = download_clips(niches[niche]["query"])
+        clips = download_clips(query)
 
         if not clips:
-            print("No clips found")
+            print("⚠️ No clips found")
             continue
 
-        tts(script, audio)
-        build_video(audio, temp_video, final_video, clips, script)
+        generate_audio(script, audio)
+        build_video(audio, output, clips, script)
 
         video_id = upload_video(
-            file_path=final_video,
-            title=generate_title(idea),
-            description="Psychology shorts #viral #shorts",
-            tags=["psychology", "viral", "shorts"]
+            file_path=output,
+            title=generate_title(topic),
+            description=f"{niche} insights #shorts #viral",
+            tags=[niche, "shorts", "viral"]
         )
+
+        print("✅ Uploaded:", video_id)
 
         cleanup([audio] + clips)
 
-        print(f"✅ Uploaded: {video_id}")
+        time.sleep(30)
 
-        time.sleep(60)
-
-    print("🚀 DONE")
+    print("\n🚀 DONE")
 
 if __name__ == "__main__":
     main()
