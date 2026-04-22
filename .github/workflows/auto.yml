@@ -32,7 +32,10 @@ jobs:
           pip install google-auth-httplib2
           pip install google-auth-oauthlib
           pip install google-generativeai
-
+      
+      - name: Install ffmpeg
+        run: sudo apt update && sudo apt install -y ffmpeg
+        
       - name: Create .env file
         run: |
           echo "PEXELS_API_KEY=${{ secrets.PEXELS_API_KEY }}" > .env
