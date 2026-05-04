@@ -1,52 +1,80 @@
 name: Auto Shorts Generator
 
 on:
-  workflow_dispatch:   # manual run button
+  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours
+    - cron: "0 */6 * * *"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+    # ----------------------------
+    # Checkout repo
+    # ----------------------------
     - name: Checkout
       uses: actions/checkout@v3
 
+    # ----------------------------
+    # Setup Python
+    # ----------------------------
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: "3.10"
 
+    # ----------------------------
+    # Install FFmpeg
+    # ----------------------------
     - name: Install FFmpeg
       run: |
         sudo apt update
         sudo apt install -y ffmpeg
 
-    - name: Install Dependencies
+    # ----------------------------
+    # Install dependencies
+    # ----------------------------
+    - name: Install Requirements
       run: |
         pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Create Folders
+    # ----------------------------
+    # Prepare folders
+    # ----------------------------
+    - name: Create folders
       run: |
         mkdir -p assets/audio assets/clips assets/fonts output
 
+    # ----------------------------
+    # Download font
+    # ----------------------------
     - name: Download Font
       run: |
         curl -L -o assets/fonts/Montserrat-Bold.ttf https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat-Bold.ttf
 
+    # ----------------------------
+    # Restore token.pickle (FIXED)
+    # ----------------------------
     - name: Restore token.pickle
       run: |
-        echo "${{ secrets.YOUTUBE_TOKEN }}" | base64 --decode > token.pickle
+        echo "${{ secrets.YT_TOKEN }}" | base64 -d > token.pickle
+        ls -lh token.pickle
 
-    - name: Run Script
+    # ----------------------------
+    # Run script
+    # ----------------------------
+    - name: Run Auto Shorts
       env:
         PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
         echo "1" | python auto_shorts.py
 
+    # ----------------------------
+    # Upload generated videos (debug)
+    # ----------------------------
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
