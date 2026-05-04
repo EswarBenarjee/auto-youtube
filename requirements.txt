@@ -1,10 +1,10 @@
-moviepy
-gtts
+moviepy==1.0.3
+numpy
+Pillow
 requests
 python-dotenv
+edge-tts
+google-generativeai
 google-api-python-client
-google-auth
-google-auth-oauthlib
 google-auth-httplib2
-numpy
-Pillow<10
+google-auth-oauthlib
