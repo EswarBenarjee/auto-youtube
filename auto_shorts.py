@@ -1,137 +1,135 @@
-import os
-import random
-import time
-import gc
-import requests
+import os, random, requests, asyncio, time, textwrap
 import numpy as np
-from gtts import gTTS
 from moviepy.editor import *
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
+import edge_tts
 import google.generativeai as genai
-
 from youtube_uploader import upload_video
 
 # ==============================
 # ENV
 # ==============================
-load_dotenv(".env", override=True)
-
+load_dotenv()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.5-flash")
-
-print("API KEY LOADED:", PEXELS_API_KEY[:10] if PEXELS_API_KEY else "None")
+model = genai.GenerativeModel("gemini-flash-latest")
 
 # ==============================
-# FOLDERS
+# PATHS
 # ==============================
 ASSETS = "assets"
 AUDIO = f"{ASSETS}/audio"
 CLIPS = f"{ASSETS}/clips"
-TEMP = f"{ASSETS}/temp"
 OUTPUT = "output"
+FONTS = f"{ASSETS}/fonts"
 
-for d in [AUDIO, CLIPS, TEMP, OUTPUT]:
+for d in [AUDIO, CLIPS, OUTPUT, FONTS]:
     os.makedirs(d, exist_ok=True)
 
 # ==============================
-# NICHE SYSTEM
+# FONT
 # ==============================
-NICHES = {
-    "psychology": ["overthinking", "fake confidence", "people pleasing"],
-    "money": ["saving habits", "rich mindset", "money mistakes"],
-    "fitness": ["fat loss", "gym mistakes", "discipline"],
-    "social": ["why people ignore you", "respect", "confidence"],
-    "facts": ["brain facts", "human behavior", "daily habits"]
-}
-
-SCRIPT_STYLES = ["curiosity", "list", "story", "warning", "question", "fact"]
-
-# ==============================
-# SCRIPT ENGINE
-# ==============================
-def generate_script(topic):
-    style = random.choice(SCRIPT_STYLES)
-
-    prompt = f"""
-Create a viral YouTube Shorts script.
-
-Topic: {topic}
-Style: {style}
-
-Rules:
-- 20–35 words
-- Strong hook in first 2 seconds
-- Create curiosity gap
-- Make viewer feel they are missing something important
-- No emojis or hashtags
-"""
-
+def get_font(size):
     try:
-        res = model.generate_content(prompt)
-        text = res.text.strip()
-
-        if len(text.split()) < 10:
-            raise Exception("Too short")
-
-        return text
+        return ImageFont.truetype(f"{FONTS}/Montserrat-Bold.ttf", size)
     except:
-        return f"Stop scrolling. If you {topic}, this reveals something most people ignore."
+        return ImageFont.load_default()
+
+def clean_text(t):
+    return t.replace("“", '"').replace("”", '"').replace("’", "'")
 
 # ==============================
-# TITLE ENGINE
+# 🔥 BETTER HOOK ENGINE
 # ==============================
-def generate_title(topic):
-    return random.choice([
-        f"If you do this, watch this",
-        f"This explains {topic}",
-        f"Nobody talks about this",
-        f"3 signs of {topic}",
-        f"Stop doing this immediately",
-        f"This is why you {topic}",
-        f"Hidden meaning of {topic}"
-    ])
+def generate_content():
+    prompt = """
+    Generate 5 EXTREMELY VIRAL YouTube Shorts hooks.
 
-# ==============================
-# AUDIO (NO CRASH VERSION)
-# ==============================
-def generate_audio(text, path):
+    Style:
+    - Aggressive
+    - Emotional trigger
+    - Make viewer feel attacked or curious
+
+    Examples:
+    - You're broke because of this
+    - This is why you never win
+    - Stop doing this immediately
+    - Rich people hide this
+    - You're wasting your life
+
+    Rules:
+    - Max 6 words
+    - No fluff
+    - No generic phrases
+
+    Also generate a short motivational script (5-7 lines).
+
+    Output format:
+    HOOK1:
+    HOOK2:
+    HOOK3:
+    HOOK4:
+    HOOK5:
+    SCRIPT:
+    """
+
     try:
-        gTTS(text=text, lang="en").save(path)
-    except Exception as e:
-        print("⚠️ Audio failed:", e)
+        res = model.generate_content(prompt).text
+
+        hooks = [
+            res.split("HOOK1:")[1].split("HOOK2:")[0].strip(),
+            res.split("HOOK2:")[1].split("HOOK3:")[0].strip(),
+            res.split("HOOK3:")[1].split("HOOK4:")[0].strip(),
+            res.split("HOOK4:")[1].split("HOOK5:")[0].strip(),
+            res.split("HOOK5:")[1].split("SCRIPT:")[0].strip()
+        ]
+
+        script = res.split("SCRIPT:")[1].strip()
+
+        return hooks, script
+
+    except:
+        return [
+            "You're broke because of this",
+            "This is why you fail",
+            "Stop doing this now",
+            "Rich people avoid this",
+            "You're wasting your life"
+        ], "Success is not luck. It is discipline. Most people quit early. Winners don't."
 
 # ==============================
-# VIDEO SEARCH
+# AUDIO
 # ==============================
-def get_query(topic):
-    return random.choice([
-        f"{topic} cinematic",
-        f"{topic} emotional scene",
-        f"{topic} lifestyle",
-        f"{topic} human behavior",
-        f"{topic} dark aesthetic"
-    ])
+async def tts_async(text, path):
+    communicate = edge_tts.Communicate(text, "en-US-GuyNeural", rate="-10%")
+    await communicate.save(path)
 
+def generate_audio(text, path):
+    asyncio.run(tts_async(text, path))
+
+# ==============================
+# 🔥 DOWNLOAD MULTIPLE CLIPS
+# ==============================
 def download_clips(query, count=3):
     url = "https://api.pexels.com/videos/search"
     headers = {"Authorization": PEXELS_API_KEY}
 
-    try:
-        r = requests.get(url, headers=headers, params={"query": query, "per_page": count})
-        data = r.json()
-    except:
-        return []
+    r = requests.get(url, headers=headers, params={"query": query, "per_page": count})
+    data = r.json()
 
     paths = []
 
     for i, v in enumerate(data.get("videos", [])):
         try:
-            best = max(v["video_files"], key=lambda x: x.get("height", 0))
-            path = f"{CLIPS}/clip_{i}.mp4"
+            best = min(
+                v["video_files"],
+                key=lambda x: abs(x.get("height", 720) - 720)
+            )
+
+            path = f"{CLIPS}/clip_{time.time()}_{i}.mp4"
 
             with open(path, "wb") as f:
                 f.write(requests.get(best["link"]).content)
@@ -143,92 +141,111 @@ def download_clips(query, count=3):
     return paths
 
 # ==============================
-# FORMAT 9:16
+# FORMAT
 # ==============================
 def format_vertical(clip):
-    target = 1080 / 1920
-    ratio = clip.w / clip.h
+    if clip.w > 1280:
+        clip = clip.resize(width=1280)
+
+    target = 9/16
+    ratio = clip.w/clip.h
 
     if ratio > target:
-        clip = clip.crop(width=int(clip.h * target), x_center=clip.w / 2)
+        clip = clip.crop(width=int(clip.h*target), x_center=clip.w/2)
     else:
-        clip = clip.crop(height=int(clip.w / target), y_center=clip.h / 2)
+        clip = clip.crop(height=int(clip.w/target), y_center=clip.h/2)
 
-    return clip.resize((1080, 1920))
+    return clip.resize((720,1280))
 
 # ==============================
-# CAPTIONS (FIXED BOTTOM SMALL)
+# CAPTIONS
 # ==============================
-def captions(text, duration):
-    words = text.split()
+def captions(script, duration):
+    words = script.split()
     per = duration / len(words)
 
     clips = []
 
-    for i, w in enumerate(words):
-        img = Image.new("RGBA", (1080, 140), (0, 0, 0, 0))
+    for i, word in enumerate(words):
+        word = clean_text(word)
+
+        img = Image.new("RGBA", (1080, 260), (0,0,0,0))
         draw = ImageDraw.Draw(img)
 
-        try:
-            font = ImageFont.truetype("arial.ttf", 38)
-        except:
-            font = ImageFont.load_default()
+        font = get_font(55)
 
-        draw.rectangle([(250, 30), (830, 110)], fill=(0, 0, 0, 160))
-        draw.text((540, 70), w.upper(), font=font, fill=(255,255,255), anchor="mm")
+        draw.rounded_rectangle([(100,20),(980,240)], radius=25, fill=(0,0,0,160))
+
+        draw.text((540,130), word.upper(), font=font, fill=(255,255,255), anchor="mm")
 
         clip = ImageClip(np.array(img)).set_duration(per)
-        clip = clip.set_start(i * per).set_position(("center", 1550))
+        clip = clip.set_start(i*per).set_position(("center",1500))
 
         clips.append(clip)
 
     return clips
 
 # ==============================
-# VIDEO BUILDER
+# HOOK
 # ==============================
-def build_video(audio_path, output_path, clips, script):
-    if not os.path.exists(audio_path):
-        print("⚠️ Audio missing, skipping video")
-        return
+def hook_anim(hook):
+    words = clean_text(hook).upper().split()
+    per = 2 / len(words)
 
+    clips = []
+
+    for i, w in enumerate(words):
+        img = Image.new("RGBA", (1080,1920), (0,0,0,0))
+        draw = ImageDraw.Draw(img)
+
+        font = get_font(110)
+
+        draw.text((540,700), w, font=font, fill=(255,255,255), anchor="mm")
+
+        clip = ImageClip(np.array(img)).set_duration(per)
+        clip = clip.set_start(i*per)
+
+        clips.append(clip)
+
+    return clips
+
+# ==============================
+# BUILD VIDEO
+# ==============================
+def build_video(audio_path, output_path, script, hook):
     audio = AudioFileClip(audio_path)
     duration = audio.duration
 
-    per_clip = duration / len(clips)
+    # 🔥 MULTIPLE CLIPS
+    clip_paths = download_clips("success motivation", 5)
+
+    if not clip_paths:
+        print("❌ No clips")
+        return
+
     parts = []
+    per = duration / len(clip_paths)
 
-    for c in clips:
-        clip = VideoFileClip(c)
+    for p in clip_paths:
+        clip = VideoFileClip(p, target_resolution=(1280,720))
 
-        if clip.duration > per_clip:
-            start = random.uniform(0, clip.duration - per_clip)
-            clip = clip.subclip(start, start + per_clip)
+        if clip.duration > per:
+            clip = clip.subclip(0, per)
 
         clip = format_vertical(clip)
+
+        # ❌ NO FADE
         parts.append(clip)
 
-    base = concatenate_videoclips(parts).set_audio(audio).set_duration(duration)
+    base = concatenate_videoclips(parts).set_audio(audio)
 
-    final = CompositeVideoClip([base, *captions(script, duration)])
+    final = CompositeVideoClip([
+        base,
+        *hook_anim(hook),
+        *captions(script, duration)
+    ])
 
     final.write_videofile(output_path, fps=24)
-
-    final.close()
-    base.close()
-    audio.close()
-
-# ==============================
-# CLEANUP
-# ==============================
-def cleanup(files):
-    for f in files:
-        try:
-            if os.path.exists(f):
-                os.remove(f)
-        except:
-            pass
-    gc.collect()
 
 # ==============================
 # MAIN
@@ -237,38 +254,30 @@ def main():
     n = int(input("How many videos? "))
 
     for i in range(n):
-        niche = random.choice(list(NICHES.keys()))
-        topic = random.choice(NICHES[niche])
+        print(f"\n🎬 Creating video {i+1}")
 
-        print(f"\n🎬 {i+1}: [{niche}] {topic}")
+        hooks, script = generate_content()
+        hook = random.choice(hooks)
 
-        script = generate_script(topic)
-        query = get_query(topic)
+        print("🎯 Selected Hook:", hook)
 
         audio = f"{AUDIO}/voice_{i}.mp3"
-        output = f"{OUTPUT}/{niche}_{topic.replace(' ','_')}_{i}.mp4"
-
-        clips = download_clips(query)
-
-        if not clips:
-            print("⚠️ No clips found")
-            continue
+        output = f"{OUTPUT}/video_{i}.mp4"
 
         generate_audio(script, audio)
-        build_video(audio, output, clips, script)
+        build_video(audio, output, script, hook)
 
         try:
-            video_id = upload_video(
+            vid = upload_video(
                 file_path=output,
-                title=generate_title(topic),
-                description=f"{niche} insights #shorts #viral",
-                tags=[niche, "shorts", "viral"]
+                title=hook,
+                description="Billionaire mindset #shorts",
+                tags=["success","mindset"]
             )
-            print("✅ Uploaded:", video_id)
+            print("✅ Uploaded:", vid)
         except Exception as e:
             print("⚠️ Upload failed:", e)
 
-        cleanup([audio] + clips)
         time.sleep(20)
 
     print("\n🚀 DONE")
